@@ -12,7 +12,7 @@
 # ...: argumentos adicionais a serem passados para a função "lines"
 # ##################################################################
 
-normal_area <- function(media = 0, dp = 1, linf, lsup, cor = "lightgray", ...) {
+normal_area <- function(media = 0, dp = 1, linf, lsup, cor = "red", ...) {
   x <- seq(media - 3 * dp, media + 3 * dp, length = 100) 
   
   if (missing(linf)) {
