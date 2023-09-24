@@ -1,21 +1,21 @@
-# Função Moda
+# FunÃ§Ã£o Moda
 # Calcula a moda
-# Função criada pelo Professor Petrônio Fagundes de Oliveira Filho
+# FunÃ§Ã£o criada pelo Professor PetrÃ´nio Fagundes de Oliveira Filho
 # Criada em R 4.1.0
 
-# Criar a função:
+# Criar a funÃ§Ã£o:
 
 moda <- function(x) {
-  z <- table(as.vector(x))
-  names(z)[z == max(z)]
+  valor.unico <- unique(x)
+valor.unico[which.max(tabulate(match(x, valor.unico)))]
 }
 
-# Para usar a função bastas baixar os dados e colocá-los no objeto x.
+# Para usar a funÃ§Ã£o bastas baixar os dados e colocÃ¡-los no objeto x.
 
 x <- c(6, 8,  6,  7, 11,  8,  6,  7,  4,  5,  8,  4,  8,  8, 11)
 
-# Para ativar a função :
+# Para ativar a fun??o :
 
-# source ("C:/Users/T.S/Dropbox/Estatística/Estatística R/Funções/moda.R")
+# source ("C:/Users/T.S/Dropbox/Estat?stica/Estat?stica R/Fun??es/moda.R")
 
 # moda (x)
