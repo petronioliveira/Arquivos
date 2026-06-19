@@ -1,0 +1,447 @@
+---
+title: "Associação entre tabagismo materno e baixo peso ao nascer"
+subtitle: "Estudo caso-controle"
+author: "Petrônio Fagundes de Oliveira Filho"
+date: today
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    number-sections: true
+    code-fold: true
+    include-in-header:
+      text: |
+        <style>
+        body { text-align: justify; }
+        </style>
+    lang: pt
+  pdf:
+    toc: true
+    number-sections: true
+    pdf-engine: lualatex
+    include-in-header:
+      text: |
+        \usepackage{babel}
+        \babelprovide[main, import]{portuguese}
+execute:
+  echo: true
+  warning: false
+  message: false
+bibliography: references.bib
+csl: vancouver.csl
+---
+
+```{r}
+#| label: setup
+#| include: false
+
+library(tidyverse)
+library(broom)
+library(readxl)
+library(epitools)
+library(ResourceSelection)
+library(patchwork)
+```
+
+## Introdução
+
+O baixo peso ao nascer (\< 2500 g) é um importante indicador de saúde perinatal, associado a maior morbimortalidade neonatal. O tabagismo materno durante a gestação é um fator de risco potencialmente modificável e frequentemente estudado em epidemiologia.
+
+Este documento apresenta um estudo **caso-controle** [@schlesselman1982; @rothman2008] utilizando dados de uma maternidade, investigando a associação entre **tabagismo materno** e **baixo peso ao nascer a termo**, com análise de regressão logística e avaliação de confundimento.
+
+## Objetivo
+
+Investigar a associação entre tabagismo materno durante a gestação e baixo peso ao nascer (\< 2500 g) em recém-nascidos a termo, estimando o odds ratio bruto e ajustado, e avaliando o papel da escolaridade materna como confundidor.
+
+## Dados e preparação
+
+Os dados foram carregados a partir do arquivo `dadosMater.xlsx` [^caso-controle-1]. As variáveis categóricas foram criadas com `mutate()`.
+
+[^caso-controle-1]: Para obter os dados clicar [aqui](https://github.com/petronioliveira/Arquivos/blob/main/dadosMater.xlsx) e baixar no seu diretório de trabalho. Troque o endereço colocado pelo o do seu diretório.
+
+```{r}
+#| label: dados
+
+dados <- read_excel(
+  "C:/Users/petro/Dropbox/Estatistica/statsR/dados/dadosMater.xlsx"
+) |>
+  dplyr::select(idadeMae, ig, fumo, anosEst, para, pesoRN, sexo) |>
+  mutate(
+    fumo = factor(fumo, levels = c(1, 2), labels = c("Sim", "Não")),
+    sexo = factor(sexo, levels = c(1, 2), labels = c("Masculino", "Feminino")),
+    escolaridade = cut(
+      anosEst,
+      breaks = c(-Inf, 4, 8, 11, Inf),
+      labels = c("< 5 anos", "5–8 anos", "9–11 anos", "≥ 12 anos"),
+      right = TRUE
+    ),
+    paridade = cut(
+      para,
+      breaks = c(-1, 0, 2, 99),
+      labels = c("Primigesta", "2-3", "≥ 4")
+    ),
+    categidade = cut(
+      idadeMae,
+      breaks = c(10, 19, 34, 50),
+      labels = c("< 20", "20–34", "≥ 35")
+    )
+  )
+
+glimpse(dados)
+```
+
+## Definição de casos e controles
+
+Foram incluídos apenas recém-nascidos **a termo** (IG ≥ 37 semanas):
+
+- **Casos**: peso ao nascer \< 2500 g
+- **Controles**: peso ao nascer ≥ 2500 g
+
+```{r}
+#| label: casos-controles
+
+casos           <- dados |> filter(pesoRN < 2500, ig >= 37)
+controles_elig  <- dados |> filter(pesoRN >= 2500, ig >= 37)
+
+cat("Casos:", nrow(casos), "| Controles elegíveis:", nrow(controles_elig))
+```
+
+### Amostra completa (razão 1:17)
+
+```{r}
+#| label: cc-full
+
+cc_full <- rbind(
+  transform(casos, caso = 1),
+  transform(controles_elig, caso = 0)
+)
+
+table(cc_full$caso)
+```
+
+### Amostra didática (razão 1:2)
+
+```{r}
+#| label: cc-amostrado
+
+set.seed(123)
+
+controles <- controles_elig[
+  sample(1:nrow(controles_elig), size = 2 * nrow(casos)), ]
+
+cc <- rbind(
+  transform(casos, caso = 1),
+  transform(controles, caso = 0)
+) |>
+  mutate(fumo = relevel(fumo, ref = "Não"))
+
+table(cc$caso)
+```
+
+## Análise descritiva
+
+### Tabela 2×2: tabagismo × caso
+
+```{r}
+#| label: tab-2x2
+
+tabela2 <- table(
+  Exposicao = factor(cc$fumo, levels = c("Não", "Sim")),
+  Caso = cc$caso
+)
+tabela2
+```
+
+### Proporção de tabagismo por grupo
+
+```{r}
+#| label: fig-barras
+#| fig-cap: "Proporção de tabagismo entre casos e controles"
+
+ggplot(cc, aes(x = factor(caso, labels = c("Controle", "Caso")),
+               fill = fumo)) +
+  geom_bar(position = "fill") +
+  scale_y_continuous(labels = scales::percent) +
+  labs(x = "", y = "Proporção", fill = "Tabagismo") +
+  theme_classic() +
+  theme(legend.position = "top")
+```
+
+## OR bruto
+
+### Cálculo manual
+
+```{r}
+#| label: or-manual
+
+tabela <- table(Exposicao = cc$fumo, Caso = cc$caso)
+
+odds_casos     <- tabela["Sim", "1"] / tabela["Não", "1"]
+odds_controles <- tabela["Sim", "0"] / tabela["Não", "0"]
+OR_bruto       <- odds_casos / odds_controles
+
+cat("Odds casos:    ", round(odds_casos, 4),
+    "\nOdds controles:", round(odds_controles, 4),
+    "\nOR bruto:      ", round(OR_bruto, 4))
+```
+
+### OR com IC 95%
+
+O `epitools::oddsratio()` usa o método de Woolf (também chamado de intervalo de Wald na escala logarítmica) para calcular o IC 95% do OR.
+
+```{r}
+#| label: or-epitools
+
+or_result <- epitools::oddsratio(tabela2)
+or_result$measure
+or_result$p.value
+```
+
+O tabagismo está associado a **OR ≈ 3,7** (IC 95%: 1,77–7,99; p \< 0,001) de baixo peso ao nascer, comparado a não fumantes. O intervalo de confiança foi calculado pelo método de Woolf [@woolf1955].
+
+## Modelos de regressão logística
+
+### Modelo 1 — OR bruto (regressão)
+
+```{r}
+#| label: modelo1
+
+modelo1 <- glm(caso ~ fumo, data = cc, family = binomial)
+
+tidy(modelo1, conf.int = TRUE, exponentiate = TRUE) |>
+  dplyr::select(term, OR = estimate, IC_inf = conf.low,
+                IC_sup = conf.high, p.value)
+```
+
+### Modelo 2 — Ajustado completo
+
+```{r}
+#| label: modelo2
+
+modelo2 <- glm(
+  caso ~ fumo + categidade + escolaridade + paridade + sexo,
+  data = cc,
+  family = binomial
+)
+
+tidy(modelo2, conf.int = TRUE, exponentiate = TRUE) |>
+  filter(term != "(Intercept)") |>
+  mutate(
+    Variável = case_match(term,
+      "fumoSim"                ~ "Tabagismo: Sim",
+      "categidade20–34"        ~ "Idade: 20–34",
+      "categidade≥ 35"         ~ "Idade: ≥ 35",
+      "escolaridade5–8 anos"   ~ "Escolaridade: 5–8 anos",
+      "escolaridade9–11 anos"  ~ "Escolaridade: 9–11 anos",
+      "escolaridade≥ 12 anos"  ~ "Escolaridade: ≥ 12 anos",
+      "paridade2-3"            ~ "Paridade: 2–3",
+      "paridade≥ 4"            ~ "Paridade: ≥ 4",
+      "sexoFeminino"           ~ "Sexo: Feminino",
+      .default                 = term       # mantém qualquer termo inesperado visível
+    ),
+    OR        = round(estimate, 2),
+    IC_inf    = round(conf.low, 2),
+    IC_sup    = round(conf.high, 2),
+    `p-valor` = round(p.value, 4),
+    Sig       = ifelse(p.value < 0.05, "✓", "")
+  ) |>
+  dplyr::select(Variável, OR, IC_inf, IC_sup, `p-valor`, Sig)
+```
+
+### Modelo 3 — Simplificado (fumo + escolaridade)
+
+```{r}
+#| label: modelo3
+
+modelo3 <- glm(caso ~ fumo + escolaridade, data = cc, family = binomial)
+
+tidy(modelo3, conf.int = TRUE, exponentiate = TRUE) |>
+  filter(term != "(Intercept)") |>
+  mutate(
+    Variável = case_match(term,
+      "fumoSim"               ~ "Tabagismo: Sim",
+      "escolaridade5–8 anos"  ~ "Escolaridade: 5–8 anos",
+      "escolaridade9–11 anos" ~ "Escolaridade: 9–11 anos",
+      "escolaridade≥ 12 anos" ~ "Escolaridade: ≥ 12 anos"
+    ),
+    OR        = round(estimate, 2),
+    IC_inf    = round(conf.low, 2),
+    IC_sup    = round(conf.high, 2),
+    `p-valor` = round(p.value, 4),
+    Sig       = ifelse(p.value < 0.05, "✓", "")
+  ) |>
+  dplyr::select(Variável, OR, IC_inf, IC_sup, `p-valor`, Sig)
+```
+
+### Comparação de modelos
+
+```{r}
+#| label: comparacao-modelos
+
+cat("=== AIC ===\n")
+cat("Modelo 1 – bruto:       ", AIC(modelo1), "\n")
+cat("Modelo 2 – completo:    ", AIC(modelo2), "\n")
+cat("Modelo 3 – simplificado:", AIC(modelo3), "\n\n")
+
+cat("=== LRT: modelo3 vs modelo2 ===\n")
+anova(modelo3, modelo2, test = "LRT")
+```
+
+O Modelo 1 apresenta o efeito bruto do tabagismo sobre o baixo peso ao nascer. O Modelo 2 inclui potenciais confundidores clássicos (idade materna, escolaridade, paridade e sexo do recém‑nascido).
+
+Ao comparar o Modelo 2 com o Modelo 3 por meio do teste de razão de verossimilhança (LRT), observou‑se que a remoção de idade materna, paridade e sexo não resultou em piora estatisticamente significativa do ajuste (p = 0,20). Além disso, o Modelo 3 apresentou o menor AIC entre os modelos avaliados.
+
+**No entanto**, a escolha do “melhor modelo” em epidemiologia não deve se basear apenas em critérios estatísticos. Variáveis como idade materna e paridade são reconhecidas como potenciais **confundidores** na relação entre tabagismo e baixo peso ao nascer, mesmo quando não apresentam significância estatística no modelo.
+
+Assim, embora o Modelo 3 seja mais parcimonioso e apresente menor AIC, o Modelo 2 permanece epidemiologicamente mais adequado para estimar o efeito ajustado do tabagismo, pois controla para confundidores relevantes segundo o conhecimento prévio.
+
+### Comparação OR bruto vs. ajustado — tabagismo
+
+```{r}
+#| label: fig-or-comparativo
+#| fig-cap: "OR bruto vs. ajustado para tabagismo"
+
+bruto <- tidy(modelo1, conf.int = TRUE, exponentiate = TRUE) |>
+  filter(term == "fumoSim") |> mutate(modelo = "Bruto")
+
+ajustado <- tidy(modelo3, conf.int = TRUE, exponentiate = TRUE) |>
+  filter(term == "fumoSim") |> mutate(modelo = "Ajustado")
+
+comparativo <- bind_rows(bruto, ajustado) |>
+  mutate(modelo = factor(modelo, levels = c("Bruto", "Ajustado")))
+
+ggplot(comparativo, aes(y = modelo, x = estimate)) +
+  geom_point(size = 4) +
+  geom_errorbar(aes(xmin = conf.low, xmax = conf.high), width = 0.15) +
+  geom_vline(xintercept = 1, linetype = "dashed", color = "gray40") +
+  scale_x_log10() +
+  labs(x = "Odds Ratio (IC 95%, escala log)", y = "",
+       title = "OR bruto vs. ajustado — Tabagismo") +
+  theme_classic()
+```
+
+Após ajuste, o OR do tabagismo reduziu ligeiramente de **3,76 para 3,22**, variação de \~15%, indicando robustez à confusão pelas covariáveis incluídas.
+
+### Forest plot — Modelo ajustado completo
+
+```{r}
+#| label: fig-forest
+#| fig-cap: "Forest plot dos OR ajustados (modelo 2)"
+
+res <- tidy(modelo2, conf.int = TRUE, exponentiate = TRUE) |>
+  filter(term != "(Intercept)") |>
+  mutate(
+    term = case_match(term,
+      "fumoSim"                ~ "Tabagismo: Sim",
+      "categidade20–34"        ~ "Idade: 20–34",
+      "categidade≥ 35"         ~ "Idade: ≥ 35",
+      "escolaridade5–8 anos"   ~ "Escolaridade: 5–8 anos",
+      "escolaridade9–11 anos"  ~ "Escolaridade: 9–11 anos",
+      "escolaridade≥ 12 anos"  ~ "Escolaridade: ≥ 12 anos",
+      "paridade2-3"            ~ "Paridade: 2–3",
+      "paridade≥ 4"            ~ "Paridade: ≥ 4",
+      "sexoFeminino"           ~ "Sexo: Feminino",
+      .default                 = term
+    ),
+    significativo = ifelse(p.value < 0.05, "p < 0,05", "p ≥ 0,05")
+  )
+
+ggplot(res, aes(y = reorder(term, estimate), x = estimate,
+                color = significativo)) +
+  geom_point(size = 3) +
+  geom_errorbar(aes(xmin = conf.low, xmax = conf.high), width = 0.25) +
+  geom_vline(xintercept = 1, linetype = "dashed", color = "gray40") +
+  scale_x_log10() +
+  scale_color_manual(
+    values = c("p < 0,05" = "firebrick", "p ≥ 0,05" = "gray50")
+  ) +
+  labs(x = "Odds Ratio (IC 95%, escala log)", y = "", color = "",
+       title = "Forest plot — Modelo ajustado") +
+  theme_classic() +
+  theme(legend.position = "bottom")
+```
+
+### Ajuste do modelo (Hosmer-Lemeshow)
+
+O **teste de Hosmer–Lemeshow** avalia a qualidade do ajuste de um modelo de regressão logística [@hosmer2013], comparando probabilidades previstas e observadas em grupos de risco. Valores de *p* maiores que 0,05 indicam que o modelo apresenta boa calibração. Entretanto, o teste não avalia confundimento, não mede validade causal e é sensível ao tamanho da amostra; portanto, deve ser interpretado em conjunto com outros critérios e com o conhecimento epidemiológico.
+
+```{r}
+#| label: hosmer-lemeshow
+
+hl <- hoslem.test(modelo2$y, fitted(modelo2), g = 10)
+hl
+```
+
+O teste de Hosmer-Lemeshow não detecta falta de ajuste (p = 0,18).
+
+## Escolaridade: confundidor ou mediador?
+
+### Distribuição de escolaridade por grupo
+
+```{r}
+#| label: fig-escolaridade
+#| fig-cap: "Distribuição de escolaridade entre casos e controles"
+
+cc |>
+  mutate(grupo = ifelse(caso == 1, "Caso", "Controle")) |>
+  ggplot(aes(x = escolaridade, fill = grupo)) +
+  geom_bar(position = "dodge") +
+  labs(x = "Escolaridade", y = "Frequência", fill = "",
+       title = "Distribuição de escolaridade — Casos vs. Controles") +
+  theme_classic() +
+  theme(legend.position = "top")
+```
+
+### Associação entre tabagismo e escolaridade
+
+```{r}
+#| label: fig-fumo-escolaridade
+#| fig-cap: "Prevalência de tabagismo por nível de escolaridade"
+
+cc |>
+  mutate(fumante = ifelse(fumo == "Sim", "Fumante", "Não fumante")) |>
+  ggplot(aes(x = escolaridade, fill = fumante)) +
+  geom_bar(position = "fill") +
+  scale_y_continuous(labels = scales::percent) +
+  labs(x = "Escolaridade", y = "Proporção", fill = "",
+       title = "Prevalência de tabagismo por nível de escolaridade") +
+  theme_classic() +
+  theme(legend.position = "top")
+```
+
+```{r}
+#| label: fisher-fumo-escolaridade
+
+tab_fe <- table(Escolaridade = cc$escolaridade, Tabagismo = cc$fumo)
+fisher.test(tab_fe)
+```
+
+Há associação significativa entre tabagismo e escolaridade (Fisher: *p* = 0,020), com prevalência de tabagismo caindo de 33% no estrato "\< 5 anos" para 0% em "≥ 12 anos".
+
+### Discussão: escolaridade como confundidor
+
+A escolaridade é determinada **antes** do hábito de fumar se estabelecer. Portanto, o tabagismo não pode causar a escolaridade, o que descarta formalmente o papel de mediador. A estrutura causal é:
+
+```         
+Escolaridade ──→ Tabagismo ──→ Baixo peso
+     └─────────────────────────→ Baixo peso
+```
+
+Escolaridade é uma **causa comum** de tabagismo e de baixo peso (via acesso a pré-natal, nutrição, condições socioeconômicas) — definição clássica de confundidor. Por isso foi mantida no modelo ajustado.
+
+## Conclusões
+
+1.  **Tabagismo** é o principal fator de risco identificado (OR ajustado ≈ 3,2; IC 95%: 1,51–7,02), robusto ao ajuste por covariáveis.
+
+2.  **Escolaridade** é um confundidor — e não mediador — da relação tabagismo → baixo peso, por precedência temporal. É correto mantê-la nos modelos ajustados.
+
+3.  As demais covariáveis (idade materna, paridade, sexo) não apresentaram associação independente significativa nesta amostra.
+
+## Pacotes R utilizados
+
+As análises foram conduzidas no R [@rcore2025], com os pacotes `tidyverse` [@wickham2019], `epitools` [@epitools2020] e `ResourceSelection` [@resourceselection2023].
+
+## Referências
+
+::: {#refs}
+:::
