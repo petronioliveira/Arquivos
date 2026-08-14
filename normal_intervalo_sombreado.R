@@ -32,7 +32,7 @@ normal_intervalo_sombreado <- function(a, b, mean = 0, sd = 1) {
     geom_vline(xintercept = c(a, b), linetype = "dashed", color = "red", size = 0.8) +
     scale_y_continuous(expand = expansion(add = c(0, 0.05))) +
     annotate("text", x = (a + b)/2, y = max(y)*0.9,
-             label = paste0("P(", round(a, 3), " ≤ X ≤ ", round(b, 3), ") = ", round(prob, 4)),
+             label = paste0("P(", round(a, 3), " ≤ X ≤ ", round(b, 3), ") = ", round(prob, 3)),
              size = 5, color = "red", fontface = "plain") +
     labs(
       title = "Probabilidade da Área Sombreada",
